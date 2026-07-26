@@ -6,9 +6,9 @@ knitr::opts_chunk$set(
 )
 
 ## -----------------------------------------------------------------------------
-#  install.packages("washr")
+# install.packages("washr")
 
 ## -----------------------------------------------------------------------------
-#  # Install washr from GitHub
-#  remotes::install_github("openwashdata/washr")
+# # Install washr from GitHub
+# remotes::install_github("openwashdata/washr")
 
