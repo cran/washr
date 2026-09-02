@@ -31,6 +31,17 @@ test_that("update_citation() leaves no .bk1 backup files behind (#60)", {
   expect_length(list.files(".", pattern = "\\.bk[0-9]+$", recursive = TRUE), 0)
 })
 
+test_that("update_citation() adds CITATION.cff to .Rbuildignore (#102)", {
+  create_local_package()
+  rlang::local_interactive(FALSE)
+  desc::desc_set("Date", "2026-07-23")
+  suppressMessages(update_citation())
+  expect_true(file.exists(".Rbuildignore"))
+  expect_true("^CITATION\\.cff$" %in% readLines(".Rbuildignore"))
+  suppressMessages(update_citation())
+  expect_length(grep("CITATION", readLines(".Rbuildignore"), fixed = TRUE), 1)
+})
+
 test_that("add_citation_badge() errors clearly without the badges-end marker", {
   create_local_package()
   writeLines(c("# pkg", "no badge markers here"), "README.Rmd")
@@ -70,4 +81,42 @@ test_that("CITATION.cff full-file snapshot (#65)", {
   pkgname <- desc::desc_get("Package")[[1]]
   cff <- gsub(pkgname, "PKGNAME", readLines("CITATION.cff"), fixed = TRUE)
   expect_snapshot(cat(cff, sep = "\n"))
+})
+
+test_that("update_citation() re-run without a doi keeps the DOI on file (#73)", {
+  create_local_package()
+  rlang::local_interactive(FALSE)
+  desc::desc_set("Date", "2026-07-23")
+  suppressMessages(update_citation(doi = "10.5281/zenodo.11185699"))
+  suppressMessages(update_citation())
+  expect_identical(cffr::cff_read("CITATION.cff")$doi, "10.5281/zenodo.11185699")
+})
+
+test_that("update_citation() moves hand-added CITATION.cff keywords to DESCRIPTION and keeps them (#73)", {
+  create_local_package()
+  rlang::local_interactive(FALSE)
+  desc::desc_set("Date", "2026-07-23")
+  suppressMessages(update_citation())
+  cff <- readLines("CITATION.cff")
+  writeLines(c(cff, "keywords:", "- sanitation", "- kampala"), "CITATION.cff")
+  suppressMessages(update_citation())
+  expect_identical(desc::desc_get_field("X-schema.org-keywords"), "sanitation, kampala")
+  expect_identical(unlist(cffr::cff_read("CITATION.cff")$keywords), c("sanitation", "kampala"))
+  # DESCRIPTION stays canonical on later runs (cffr pads a single keyword
+  # with "r-package" to satisfy the CFF schema, so check membership)
+  desc::desc_set("X-schema.org-keywords", "water")
+  suppressMessages(update_citation())
+  keywords <- unlist(cffr::cff_read("CITATION.cff")$keywords)
+  expect_true("water" %in% keywords)
+  expect_false(any(c("sanitation", "kampala") %in% keywords))
+})
+
+test_that("update_citation(build = FALSE) adds the badge but skips the README and site rebuilds (#75)", {
+  create_local_package()
+  rlang::local_interactive(FALSE)
+  desc::desc_set("Date", "2026-07-23")
+  writeLines(c("# pkg", "<!-- badges: start -->", "<!-- badges: end -->"), "README.Rmd")
+  suppressMessages(update_citation(doi = "10.5281/zenodo.11185699", build = FALSE))
+  expect_true(any(grepl("zenodo.11185699.svg", readLines("README.Rmd"), fixed = TRUE)))
+  expect_false(file.exists("README.md"))
 })

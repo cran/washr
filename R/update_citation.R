@@ -8,18 +8,39 @@
 #' the citation files without a DOI or badge.
 #'
 #' @param doi DOI (Digital Object Identifier), e.g., 10.5281/zenodo.11185699.
+#' @param build Logical. Rebuild README.md and the pkgdown site after the
+#'   citation files change? Defaults to `TRUE`. Set to `FALSE` to regenerate
+#'   the citation files alone, e.g., in scripts and tests.
 #'   Defaults to NULL for the pre-release call, in which case no DOI is
 #'   recorded and no badge is added.
 #'
 #' @returns NULL. A citation .cff file is written under the root directory.
+#' @seealso Before: [setup_website()]. Run again with the DOI after the Zenodo release; [update_metadata()] then picks the DOI up.
+#'
+#' @family metadata functions
+#'
 #' @export
 #'
 #' @examples
 #' \dontrun{
 #'   update_citation(doi = "10.5281/zenodo.11185699")
+#'   # Regenerate the citation files without rebuilding README.md and the site
+#'   update_citation(build = FALSE)
 #' }
 #'
-update_citation <- function(doi = NULL){
+update_citation <- function(doi = NULL, build = TRUE){
+  cff_path <- "CITATION.cff"
+  existing <- if (file.exists(cff_path)) cffr::cff_read(cff_path) else NULL
+
+  # Read-merge-write: a re-run without a doi keeps the DOI already on file
+  if (is.null(doi) && !is.null(existing$doi)) {
+    doi <- existing$doi
+    usethis::ui_info("Keeping the DOI {usethis::ui_value(doi)} from the existing CITATION.cff")
+  }
+  # Keywords live in DESCRIPTION (X-schema.org-keywords), where cffr reads
+  # them; keywords typed into CITATION.cff by hand move there once
+  migrate_cff_keywords(existing)
+
   # Creates CFF with all author roles
   keys <- list("date-released" = desc::desc_get("Date"))
   if (!is.null(doi)) {
@@ -34,6 +55,10 @@ update_citation <- function(doi = NULL){
 
   # Writes the CFF file
   cffr::cff_write(mod_cff)
+
+  # cffr adds CITATION.cff to .Rbuildignore only when cff_write() is given a
+  # path; for a cff object it returns early, so do it here (idempotent).
+  usethis::use_build_ignore("CITATION.cff")
 
   # Now write a CITATION file from the CITATION.cff file
   # Use inst/CITATION instead (the default if not provided)
@@ -51,13 +76,20 @@ update_citation <- function(doi = NULL){
   }
 
   # Modify README and pkgdown
-  if(!is.null(doi) && file.exists(file.path("README.Rmd"))){
+  badge_missing <- !is.null(doi) && file.exists("README.Rmd") &&
+    !any(grepl(paste0("zenodo.org/badge/DOI/", doi, ".svg"), readLines("README.Rmd", warn = FALSE), fixed = TRUE))
+  if(badge_missing){
     add_citation_badge(doi)
-    devtools::build_readme()
+    if (build) {
+      # the README loads the data package, so the rebuild runs in a separate
+      # process with the package loaded; devtools is a Suggests for this call
+      rlang::check_installed("devtools", reason = "to rebuild README.md after the badge changes.")
+      devtools::build_readme()
+    }
   }
 
-  if(dir.exists(file.path("docs"))){
-    devtools::build_site()
+  if(build && dir.exists(file.path("docs"))){
+    pkgdown::build_site()
   }
 
   # By last, read the citation
@@ -90,4 +122,16 @@ add_citation_badge<- function(doi){
     new_readme_rmd <- c(readme_rmd[seq_len(i - 1)], badge_str, readme_rmd[i:length(readme_rmd)])
   }
   writeLines(new_readme_rmd, readme_rmd_path)
+}
+
+# Move keywords typed into CITATION.cff by hand to their canonical home in
+# DESCRIPTION, unless DESCRIPTION already carries keywords, which then win.
+migrate_cff_keywords <- function(existing) {
+  if (is.null(existing) || is.null(existing$keywords)) return(invisible(FALSE))
+  current <- desc::desc_get_field("X-schema.org-keywords", default = "")
+  if (!identical(current, "")) return(invisible(FALSE))
+  keywords <- unique(trimws(unlist(existing$keywords)))
+  desc::desc_set("X-schema.org-keywords", paste(keywords, collapse = ", "))
+  usethis::ui_done("Moved {length(keywords)} keyword(s) from CITATION.cff to X-schema.org-keywords in DESCRIPTION, their canonical home")
+  invisible(TRUE)
 }
