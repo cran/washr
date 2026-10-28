@@ -72,6 +72,12 @@ test_that("DESCRIPTION full-file snapshot (#65)", {
   lines <- readLines("DESCRIPTION")
   lines <- gsub(pkgname, "PKGNAME", lines, fixed = TRUE)
   lines <- gsub(as.character(Sys.Date()), "YYYY-MM-DD", lines, fixed = TRUE)
-  lines <- sub("^RoxygenNote:.*$", "RoxygenNote: SCRUBBED", lines)
+  # RoxygenNote and Config/roxygen2/version record the installed roxygen2,
+  # which differs between machines and CI runners, so neither line belongs
+  # in the snapshot
+  lines <- lines[!grepl("^(RoxygenNote|Config/roxygen2/version):", lines)]
+  # Config/washr/version records the washr version that ran, which changes
+  # with every release
+  lines <- sub("^(Config/washr/version:).*$", "\\1 WASHR_VERSION", lines)
   expect_snapshot(cat(lines, sep = "\n"))
 })
